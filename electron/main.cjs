@@ -7,6 +7,12 @@ const { pathToFileURL } = require('url');
 
 let mainWindow;
 const isDev = !app.isPackaged;
+const APP_DISPLAY_NAME = 'Flux Reader';
+
+app.setName(APP_DISPLAY_NAME);
+try {
+  app.setPath('userData', path.join(app.getPath('appData'), 'localreader'));
+} catch (_) {}
 
 // ── File-based store (survives Electron/Vite restarts) ─────────────
 function storePath() {
@@ -201,7 +207,7 @@ ipcMain.handle('ai-chat', async (_event, payload) => {
     {
       role: 'system',
       content: [
-        'You are Local Reader AI, a careful reading assistant inside a local EPUB/PDF library app.',
+        'You are Flux Reader AI, a careful reading assistant inside a local EPUB/PDF library app.',
         'Answer in the same language as the user.',
         'If Selected text context is supplied, prioritize it over broader library context.',
         'Use the supplied library context when it is relevant.',
@@ -313,7 +319,7 @@ ipcMain.handle('ai-explain-search', async (_event, payload) => {
     {
       role: 'system',
       content: [
-        'You are Local Reader AI, explaining search results from a personal reading library.',
+        'You are Flux Reader AI, explaining search results from a personal reading library.',
         'Answer in the same language as the user interface context.',
         'Use only the supplied excerpts for claims about books.',
         'Compare how the searched term is used across different books.',
@@ -474,7 +480,7 @@ ipcMain.handle('ai-explain-semantic-theme', async (_event, payload) => {
     {
       role: 'system',
       content: [
-        'You are Local Reader AI, explaining one semantic theme from a personal reading library.',
+        'You are Flux Reader AI, explaining one semantic theme from a personal reading library.',
         'Answer in the same language as the search term.',
         'Use only the supplied excerpts for claims about books.',
         'Focus on the selected semantic theme, not the whole search result set.',
@@ -1250,15 +1256,28 @@ const SEMANTIC_STOP_WORDS = new Set([
   '所有', '任何', '每个', '每种', '一次', '一切', '而言', '起来', '出来', '下去', '不会', '不能',
   '不要', '总是', '甚至', '如此', '比较', '更加', '成为', '发生', '看到', '知道', 'the', 'and',
   'that', 'this', 'with', 'from', 'have', 'will', 'would', 'could', 'should', 'about', 'there', 'their',
+  'then', 'than', 'when', 'what', 'which', 'where', 'who', 'whom', 'whose', 'why', 'how', 'into', 'onto',
+  'over', 'under', 'after', 'before', 'between', 'among', 'through', 'during', 'without', 'within', 'also',
+  'just', 'only', 'very', 'more', 'most', 'much', 'many', 'some', 'such', 'each', 'every', 'other', 'another',
+  'same', 'make', 'made', 'making', 'does', 'done', 'doing', 'was', 'were', 'been', 'being', 'are', 'is',
+  'am', 'can', 'may', 'might', 'must', 'shall', 'upon', 'your', 'you', 'our', 'ours', 'his', 'her', 'hers',
+  'its', 'they', 'them', 'these', 'those', 'all', 'any', 'not', 'nor', 'for', 'but', 'or', 'as', 'at',
+  'by', 'in', 'of', 'on', 'to', 'up', 'we', 'he', 'she', 'it',
 ]);
+
+function hasCjk(text) {
+  return /[\u4e00-\u9fff]/.test(String(text || ''));
+}
 
 function clusterKeywords(items, query) {
   const queryToken = String(query || '').trim().toLowerCase();
+  const preferCjk = hasCjk(query);
   const counts = new Map();
   for (const item of items) {
     const seen = new Set();
     for (const raw of semanticTokens(item.snippet)) {
       const token = String(raw || '').trim().toLowerCase();
+      if (preferCjk && !hasCjk(token)) continue;
       if (!token || token.length <= 1 || token === queryToken || SEMANTIC_STOP_WORDS.has(token) || /^\d+$/.test(token)) continue;
       if (!/[a-zA-Z\u4e00-\u9fff]/.test(token)) continue;
       counts.set(token, (counts.get(token) || 0) + (seen.has(token) ? 0.25 : 1));
@@ -1353,6 +1372,7 @@ function extractJsonArray(text) {
 }
 
 async function nameSemanticClusters({ baseUrl, apiKey, model, query, clusters }) {
+  const useChinese = hasCjk(query);
   const payload = clusters.map((cluster, index) => ({
     index,
     keywords: cluster.keywords,
@@ -1378,8 +1398,11 @@ async function nameSemanticClusters({ baseUrl, apiKey, model, query, clusters })
           content: [
             'Name semantic clusters for a reading app.',
             'Use only the supplied excerpts.',
-            'Return valid JSON only: an array of objects with index, name, summary.',
-            'Use concise Chinese names when the search term is Chinese; otherwise use the same language as the search term.',
+            'Return valid JSON only: an array of objects with index, name, summary, keywords.',
+            'keywords must be an array of 3 to 6 short terms.',
+            useChinese
+              ? 'The search term is Chinese, so every name, summary, and keyword must be concise Simplified Chinese. Translate English concepts into Chinese. Do not output English stop words.'
+              : 'Use the same language as the search term. Do not output stop words.',
           ].join(' '),
         },
         {
@@ -1402,10 +1425,17 @@ async function nameSemanticClusters({ baseUrl, apiKey, model, query, clusters })
     const label = byIndex.get(index);
     const name = String(label?.name || '').trim();
     const summary = String(label?.summary || '').trim();
+    const keywords = Array.isArray(label?.keywords)
+      ? label.keywords
+          .map((word) => String(word || '').trim())
+          .filter((word) => word && (!useChinese || hasCjk(word)))
+          .slice(0, 6)
+      : [];
     return {
       ...cluster,
       name: name || cluster.name,
       summary: summary || cluster.summary,
+      keywords: keywords.length > 0 ? keywords : cluster.keywords,
     };
   });
 }
@@ -1489,7 +1519,7 @@ async function collectAIIndexMatches(question, options) {
     items: [{
       id: 'chat-query',
       bookTitle: 'User question',
-      bookAuthor: 'Local Reader',
+      bookAuthor: 'Flux Reader',
       format: 'Query',
       label: 'Question',
       snippet: question,
@@ -1527,7 +1557,7 @@ async function collectSemanticMapIndexItems(query, options) {
     items: [{
       id: 'semantic-map-query',
       bookTitle: 'Semantic Map',
-      bookAuthor: 'Local Reader',
+      bookAuthor: 'Flux Reader',
       format: 'Query',
       label: 'Search term',
       snippet: query,

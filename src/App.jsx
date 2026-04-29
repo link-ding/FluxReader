@@ -347,10 +347,9 @@ export default function App() {
     await storeSet('library:folders', nextFolders);
 
     if (selectedFolder === folderPath) {
-      const fallback = nextFolders[0]?.path || '';
-      setSelectedFolder(fallback);
-      await storeSet('library:selectedFolder', fallback);
-      if (fallback) setFilterView('all');
+      setSelectedFolder('');
+      await storeSet('library:selectedFolder', '');
+      setFilterView('all');
     }
 
     setRealBooks(prev => prev.filter(book => book.filePath && !book.filePath.startsWith(`${folderPath}/`)));
@@ -575,7 +574,7 @@ export default function App() {
     }}>
       <div style={{ width: '100%', height: '100%', display: 'flex' }}>
         {route.view === 'library' ? (
-          <MacChrome title="Local Reader">
+          <MacChrome title="Flux Reader">
             <Sidebar
               currentFolder={folderInfo ? folderInfo.path : 'All folders'}
               folders={folders.length > 0 ? folders : (isElectron ? [] : DEMO_FOLDERS)}
@@ -587,6 +586,7 @@ export default function App() {
               view={filterView}
               onView={setFilterView}
               onAddFolder={addFolder}
+              onRemoveFolder={removeFolder}
             />
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--app-bg)' }}>
               <Toolbar
@@ -645,7 +645,7 @@ export default function App() {
         ) : activeBook ? (
           <ReaderView book={activeBook} onBack={backToLibrary} onOpenTweaks={() => setTweaksOpen(o => !o)} notesFolder={tweaks.notesFolder} onSetNotesFolder={(f) => setTweaks({ notesFolder: f })} initialLocationCfi={route.highlightCfi} initialSearchTarget={route.searchTarget} />
         ) : (
-          <MacChrome title="Local Reader">
+          <MacChrome title="Flux Reader">
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg-faint)', fontFamily: 'var(--ui-font)', fontSize: 13 }}>
               <button onClick={backToLibrary} style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 13 }}>← Back to Library</button>
             </div>

@@ -393,6 +393,39 @@ function seededUnit(seed) {
   return x - Math.floor(x);
 }
 
+function hasLatinText(text) {
+  return /[A-Za-z]/.test(String(text || ''));
+}
+
+function wrapMapLabel(label, maxLineLength = 18, maxLines = 3) {
+  const text = String(label || '').trim().replace(/\s+/g, ' ');
+  if (!text) return [];
+  if (/[\u4e00-\u9fff]/.test(text)) {
+    const limit = 9;
+    const lines = [];
+    for (let i = 0; i < text.length && lines.length < maxLines; i += limit) {
+      lines.push(text.slice(i, i + limit));
+    }
+    return lines;
+  }
+
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxLineLength && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+    if (lines.length >= maxLines) break;
+  }
+  if (current && lines.length < maxLines) lines.push(current);
+  return lines;
+}
+
 function interpolatePoint(a, b, level) {
   const range = b.value - a.value;
   const t = Math.max(0, Math.min(1, Math.abs(range) < 0.000001 ? 0.5 : (level - a.value) / range));
@@ -630,6 +663,7 @@ function SemanticMap({
   };
   const handlePointerDown = (event) => {
     if (event.button !== 0) return;
+    if (event.target?.closest?.('[data-map-interactive="true"]')) return;
     dragRef.current = { active: true, x: event.clientX, y: event.clientY, viewBox, moved: false };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -821,9 +855,16 @@ function SemanticMap({
             const cy = cluster.y * height;
             const base = 42 + Math.sqrt(cluster.size / maxSize) * 68;
             const active = cluster.id === selectedClusterId;
+            const labelLines = wrapMapLabel(cluster.name, hasLatinText(cluster.name) ? 20 : 9, 3);
+            const labelFontSize = hasLatinText(cluster.name)
+              ? (cluster.name.length > 42 ? 10 : cluster.name.length > 28 ? 11 : 12)
+              : 15;
+            const lineHeight = labelFontSize + 3;
+            const labelStartY = cy + 26 - ((labelLines.length - 1) * lineHeight) / 2;
             return (
               <g
                 key={`region-${cluster.id}`}
+                data-map-interactive="true"
                 onMouseEnter={() => {
                   setHoveredClusterId(cluster.id);
                 }}
@@ -842,16 +883,13 @@ function SemanticMap({
                   const angle = seededUnit(itemSeed) * Math.PI * 2;
                   const distance = Math.sqrt(seededUnit(itemSeed + 11)) * base * 0.78;
                   const highlighted = hoveredItem?.id === item.id || selectedItemId === item.id;
+                  const dotX = cx + Math.cos(angle) * distance;
+                  const dotY = cy + Math.sin(angle) * distance;
+                  const dotRadius = highlighted ? 5 : 1.5 + seededUnit(itemSeed + 17) * 1.4;
                   return (
-                    <circle
+                    <g
                       key={item.id || index}
-                      cx={cx + Math.cos(angle) * distance}
-                      cy={cy + Math.sin(angle) * distance}
-                      r={highlighted ? 5 : 1.5 + seededUnit(itemSeed + 17) * 1.4}
-                      fill={highlighted ? '#F4E8BC' : 'rgba(236,234,226,0.5)'}
-                      opacity={highlighted ? 0.96 : (active ? 0.78 : 0.34)}
-                      stroke={selectedItemId === item.id ? '#F4E8BC' : 'transparent'}
-                      strokeWidth={selectedItemId === item.id ? 2 : 0}
+                      data-map-interactive="true"
                       onMouseEnter={(event) => {
                         event.stopPropagation();
                         setHoveredClusterId(cluster.id);
@@ -866,7 +904,25 @@ function SemanticMap({
                         if (suppressClickRef.current) return;
                         onSelectItem?.(cluster.id, item.id);
                       }}
-                    />
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <circle
+                        cx={dotX}
+                        cy={dotY}
+                        r={9}
+                        fill="transparent"
+                      />
+                      <circle
+                        cx={dotX}
+                        cy={dotY}
+                        r={dotRadius}
+                        fill={highlighted ? '#F4E8BC' : 'rgba(236,234,226,0.5)'}
+                        opacity={highlighted ? 0.96 : (active ? 0.78 : 0.34)}
+                        stroke={selectedItemId === item.id ? '#F4E8BC' : 'transparent'}
+                        strokeWidth={selectedItemId === item.id ? 2 : 0}
+                        pointerEvents="none"
+                      />
+                    </g>
                   );
                 })}
                 <circle
@@ -877,14 +933,18 @@ function SemanticMap({
                 />
                 <text
                   x={cx}
-                  y={cy + 28}
+                  y={labelStartY}
                   textAnchor="middle"
                   fill={active ? '#F4E8BC' : '#ECEAE2'}
-                  fontSize="15"
+                  fontSize={labelFontSize}
                   fontWeight={active ? 750 : 650}
                   style={{ paintOrder: 'stroke', stroke: '#171817', strokeWidth: 5, strokeLinejoin: 'round' }}
                 >
-                  {cluster.name}
+                  {labelLines.map((line, index) => (
+                    <tspan key={`${cluster.id}-label-${index}`} x={cx} dy={index === 0 ? 0 : lineHeight}>
+                      {line}
+                    </tspan>
+                  ))}
                 </text>
               </g>
             );

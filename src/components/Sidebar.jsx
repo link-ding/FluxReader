@@ -20,7 +20,7 @@ function SidebarIcon({ kind }) {
   return null;
 }
 
-function SidebarItem({ label, count, selected, onClick, icon }) {
+function SidebarItem({ label, count, selected, onClick, icon, onRemove }) {
   const [hover, setHover] = useState(false);
   return (
     <div
@@ -42,9 +42,37 @@ function SidebarItem({ label, count, selected, onClick, icon }) {
         <SidebarIcon kind={icon} />
       </span>
       <span style={{ flex: 1 }}>{label}</span>
-      {count !== undefined && (
+      {onRemove && hover ? (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
+          title={`Remove ${label}`}
+          style={{
+            width: 20,
+            height: 20,
+            border: 'none',
+            borderRadius: 5,
+            background: 'transparent',
+            color: 'var(--fg-faint)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            flexShrink: 0,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover)'; e.currentTarget.style.color = 'var(--fg-muted)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--fg-faint)'; }}
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+            <path d="M2 2l5 5M7 2L2 7" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+          </svg>
+        </button>
+      ) : count !== undefined ? (
         <span style={{ fontSize: 11, color: 'var(--fg-faint)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -82,6 +110,7 @@ export default function Sidebar({
   view,
   onView,
   onAddFolder,
+  onRemoveFolder,
   searchResultsCount = 0,
 }) {
   const totalBooks = books.length;
@@ -123,6 +152,7 @@ export default function Sidebar({
               onSelectFolder(f.path);
               onView('all');
             }}
+            onRemove={() => onRemoveFolder?.(f.path)}
             icon="folder"
           />
         ))}

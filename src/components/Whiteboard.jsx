@@ -500,7 +500,7 @@ function ShapeEl({ shape, selected, onMouseDown, onDoubleClick, onResizeStart })
       <g onMouseDown={onMouseDown} onDoubleClick={onDoubleClick} style={{ cursor: 'move' }}>
         <rect x={bounds.x} y={bounds.y} width={bounds.w} height={bounds.h} fill="transparent" />
         <text x={x} y={y} fontFamily="var(--ui-font)" fontSize={fontSize} fill={stroke} opacity={style.opacity ?? 1} style={{ userSelect: 'none' }}>
-          {(text ? lines : [selected ? 'Text' : '']).map((line, index) => (
+          {(text ? lines : ['']).map((line, index) => (
             <tspan key={index} x={x} dy={index === 0 ? 0 : lineHeight}>{line}</tspan>
           ))}
         </text>
@@ -761,7 +761,7 @@ function BottomBar({ scale, addCard, resetZoom, resetPan, linkingFrom, cancelLin
       {linkingFrom ? (
         <BarButton onClick={cancelLink} title="Cancel link"><span>Click a card to connect</span></BarButton>
       ) : (
-        <span style={{ fontSize: 11, color: 'var(--fg-faint)', padding: '0 4px' }}>Alt-drag pan · scroll zoom</span>
+        <span style={{ fontSize: 11, color: 'var(--fg-faint)', padding: '0 4px' }}>Two-finger pan · pinch or Option-scroll zoom</span>
       )}
     </div>
   );
@@ -783,6 +783,9 @@ function Divider() {
 function TextEditor({ shape, pan, scale, onDone }) {
   const [value, setValue] = useState(shape.text || '');
   const ref = useRef(null);
+  const fontSize = shape.style?.fontSize || 15;
+  const editingShape = { ...shape, text: value || ' ' };
+  const bounds = textBounds(editingShape);
   useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
   return (
     <input
@@ -798,16 +801,19 @@ function TextEditor({ shape, pan, scale, onDone }) {
       }}
       style={{
         position: 'absolute',
-        left: shape.x * scale + pan.x - 4,
-        top: shape.y * scale + pan.y - 22,
-        minWidth: 120,
+        left: bounds.x * scale + pan.x - 4,
+        top: bounds.y * scale + pan.y - 3,
+        width: Math.max(48, bounds.w * scale + 10),
         fontFamily: 'var(--ui-font)',
-        fontSize: (shape.style?.fontSize || 15) * scale,
+        fontSize: fontSize * scale,
+        lineHeight: `${fontSize * 1.25 * scale}px`,
         color: shape.style?.stroke || 'var(--fg)',
         background: 'transparent',
-        border: 'none',
+        border: '1px dashed var(--accent)',
+        borderRadius: 5,
         outline: 'none',
-        padding: '2px 4px',
+        padding: '1px 4px',
+        boxSizing: 'border-box',
         zIndex: 50,
       }}
     />
@@ -1156,6 +1162,14 @@ export default function Whiteboard({ book, onOpenSource }) {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
 
+    if (!event.ctrlKey && !event.altKey && !event.metaKey) {
+      setPan(current => ({
+        x: current.x - event.deltaX,
+        y: current.y - event.deltaY,
+      }));
+      return;
+    }
+
     const localX = event.clientX - rect.left;
     const localY = event.clientY - rect.top;
     const nextScale = Math.min(3, Math.max(0.25, scale + (event.deltaY < 0 ? 0.05 : -0.05)));
@@ -1223,6 +1237,25 @@ export default function Whiteboard({ book, onOpenSource }) {
     setStartPt(startPoint);
     setEndPt(startPoint);
     if (tool === 'freehand') setFreePoints([point]);
+  };
+
+  const onCanvasDoubleClick = (event) => {
+    if (isEditingTarget(event.target)) return;
+    const tag = String(event.target?.tagName || '').toLowerCase();
+    if (event.target !== canvasRef.current && tag !== 'svg') return;
+
+    event.preventDefault();
+    const point = toCanvas(event);
+    const id = Date.now().toString();
+    persist({
+      shapes: [
+        ...boardRef.current.shapes,
+        { id, type: 'text', x: point.x, y: point.y, text: '', style: { ...drawStyle, fontSize: 15 } },
+      ],
+    });
+    setSelected([{ id, kind: 'shape' }]);
+    setEditingText(id);
+    setTool('select');
   };
 
   const onMouseMove = (event) => {
@@ -1408,6 +1441,7 @@ export default function Whiteboard({ book, onOpenSource }) {
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
+      onDoubleClick={onCanvasDoubleClick}
       style={{
         flex: 1,
         minWidth: 0,
@@ -1429,7 +1463,7 @@ export default function Whiteboard({ book, onOpenSource }) {
             <ShapeEl
               key={shape.id}
               shape={shape}
-              selected={selectedIds.has(shape.id)}
+              selected={selectedIds.has(shape.id) && editingText !== shape.id}
               onMouseDown={event => {
                 if (tool !== 'select') return;
                 hitRef.current = true;
@@ -1528,7 +1562,13 @@ export default function Whiteboard({ book, onOpenSource }) {
         const shape = board.shapes.find(shape => shape.id === editingText);
         if (!shape) return null;
         return <TextEditor shape={shape} pan={pan} scale={scale} onDone={value => {
-          persist({ shapes: boardRef.current.shapes.map(shape => shape.id === editingText ? { ...shape, text: value } : shape) });
+          const text = String(value || '').trim();
+          persist({
+            shapes: text
+              ? boardRef.current.shapes.map(shape => shape.id === editingText ? { ...shape, text } : shape)
+              : boardRef.current.shapes.filter(shape => shape.id !== editingText),
+          });
+          if (!text) setSelected(prev => prev.filter(item => item.id !== editingText));
           setEditingText(null);
         }} />;
       })()}

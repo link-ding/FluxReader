@@ -1,5 +1,5 @@
 {
-  "name": "localreader",
+  "name": "flux-reader",
   "version": "1.0.0",
   "description": "A local-first EPUB and PDF reader for macOS.",
   "main": "electron/main.cjs",
@@ -30,8 +30,8 @@
     "icon-gen": "^5.0.0"
   },
   "build": {
-    "appId": "com.link.localreader",
-    "productName": "Local Reader",
+    "appId": "com.link.fluxreader",
+    "productName": "Flux Reader",
     "directories": {
       "output": "release"
     },
