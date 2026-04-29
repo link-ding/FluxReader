@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+
+.DS_Store
+.claude/
+*.log
+npm-debug.log*
+
+.env
+.env.*
+
+build/*
+!build/app.icns
