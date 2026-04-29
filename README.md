@@ -21,9 +21,13 @@ Flux Reader helps turn a folder of books into a searchable reading workspace.
 
 Add folders from your Mac and Flux Reader scans EPUB and PDF files inside them. Selecting a folder in the sidebar limits the library, search, highlights, and AI Chat to that folder.
 
+![Flux Reader library](docs/images/library.png)
+
 ### Reader
 
 Open EPUB and PDF books in a clean reading interface. EPUB books support selection, highlights, notes, and passage-based AI Chat.
+
+![Flux Reader reader](docs/images/reader.png)
 
 ### Search
 
@@ -41,6 +45,8 @@ The map supports:
 - Clickable excerpt dots
 - AI explanation for selected themes
 
+![Flux Reader search and semantic map](docs/images/search-semantic-map.png)
+
 ### AI Chat
 
 Flux Reader can use your OpenAI-compatible API key to answer questions about your books.
@@ -52,6 +58,8 @@ AI Chat can use:
 - AI Index semantic matches
 - Selected text from the current book
 
+![Flux Reader AI Chat](docs/images/ai-chat.png)
+
 ### AI Index
 
 The AI Index embeds book chunks once and caches them locally. After indexing, semantic search and AI Chat can reuse existing embeddings instead of rebuilding them every time.
@@ -59,6 +67,8 @@ The AI Index embeds book chunks once and caches them locally. After indexing, se
 ### Whiteboard
 
 Each book has a whiteboard for thinking visually. You can add cards, quotes, notes, text, shapes, arrows, and links. The whiteboard supports Mac trackpad two-finger panning, zooming, dragging, and double-click text entry.
+
+![Flux Reader whiteboard](docs/images/whiteboard.png)
 
 ## Development
 
