@@ -136,20 +136,21 @@ function PathRow({ label, path, selected, onSelect, onRemove }) {
   );
 }
 
-function UtilityButton({ children, onClick }) {
+function UtilityButton({ children, onClick, disabled = false }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         height: 28,
         padding: '0 10px',
         border: '0.5px solid var(--hairline-strong)',
         borderRadius: 6,
-        background: 'var(--input-bg)',
-        color: 'var(--fg)',
+        background: disabled ? 'var(--hover)' : 'var(--input-bg)',
+        color: disabled ? 'var(--fg-faint)' : 'var(--fg)',
         fontFamily: 'var(--ui-font)',
         fontSize: 12,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
       }}
     >
       {children}
@@ -168,6 +169,8 @@ export default function TweaksPanel({
   onSelectBookFolder,
   onRemoveBookFolder,
   onChooseNotesFolder,
+  aiIndexStatus,
+  onBuildAIIndex,
 }) {
   const [tab, setTab] = useState('general');
 
@@ -355,6 +358,13 @@ export default function TweaksPanel({
                     placeholder="gpt-5.1-mini"
                   />
                 </Field>
+                <Field label="Embedding model">
+                  <TextInput
+                    value={tweaks.aiEmbeddingModel}
+                    onChange={v => setTweaks({ aiEmbeddingModel: v })}
+                    placeholder="text-embedding-3-small"
+                  />
+                </Field>
                 <Field label="Base URL">
                   <TextInput
                     value={tweaks.aiBaseUrl}
@@ -362,6 +372,57 @@ export default function TweaksPanel({
                     placeholder="https://api.openai.com/v1"
                   />
                 </Field>
+                <div style={{
+                  marginTop: 16,
+                  padding: 12,
+                  border: '0.5px solid var(--hairline)',
+                  borderRadius: 8,
+                  background: 'var(--input-bg)',
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 650, color: 'var(--fg)', marginBottom: 4 }}>AI Index</div>
+                  <div style={{ fontSize: 12, color: 'var(--fg-faint)', lineHeight: 1.4, marginBottom: 12 }}>
+                    Build a local semantic index for all books. AI Chat will use it before keyword search.
+                  </div>
+                  <UtilityButton
+                    onClick={onBuildAIIndex}
+                    disabled={aiIndexStatus?.status === 'building'}
+                  >
+                    {aiIndexStatus?.status === 'building' ? 'Building AI Index…' : 'Build AI Index'}
+                  </UtilityButton>
+                  {aiIndexStatus?.message ? (
+                    <div style={{ marginTop: 10, fontSize: 12, color: 'var(--fg-muted)', lineHeight: 1.4 }}>
+                      {aiIndexStatus.message}
+                    </div>
+                  ) : null}
+                  {aiIndexStatus?.status === 'building' && aiIndexStatus?.progress ? (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{
+                        height: 6,
+                        borderRadius: 999,
+                        background: 'var(--hover)',
+                        overflow: 'hidden',
+                        border: '0.5px solid var(--hairline)',
+                      }}>
+                        <div style={{
+                          width: `${Math.max(3, Math.min(100, ((aiIndexStatus.progress.currentBook || 0) / Math.max(aiIndexStatus.progress.totalBooks || 1, 1)) * 100))}%`,
+                          height: '100%',
+                          background: 'var(--accent)',
+                          transition: 'width 0.2s ease',
+                        }} />
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 11, color: 'var(--fg-faint)', lineHeight: 1.4 }}>
+                        {aiIndexStatus.progress.phase === 'embedding'
+                          ? `${aiIndexStatus.progress.cachedCount || 0} cached · ${aiIndexStatus.progress.requestedCount || 0} new${aiIndexStatus.progress.batchCount ? ` · ${aiIndexStatus.progress.batchIndex || 0}/${aiIndexStatus.progress.batchCount} batches` : ''}`
+                          : `${aiIndexStatus.progress.currentBook || 0}/${aiIndexStatus.progress.totalBooks || 0} books read`}
+                      </div>
+                    </div>
+                  ) : null}
+                  {aiIndexStatus?.error ? (
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#B45309', lineHeight: 1.4 }}>
+                      {aiIndexStatus.error}
+                    </div>
+                  ) : null}
+                </div>
               </SettingsSection>
             )}
 

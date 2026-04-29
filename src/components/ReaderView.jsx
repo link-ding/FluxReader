@@ -3,8 +3,14 @@ import BookCover from './BookCover.jsx';
 import EpubReader from './EpubReader.jsx';
 import PdfReader from './PdfReader.jsx';
 import Whiteboard from './Whiteboard.jsx';
+import MarkdownContent from './MarkdownContent.jsx';
 import { getAnnotations, upsertAnnotation, removeAnnotation, generateMarkdown } from '../data/annotations.js';
 import { addBoardCard } from '../data/board.js';
+
+function trimSelectedContextText(text, maxLength = 4000) {
+  const value = String(text || '').replace(/\s+/g, ' ').trim();
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
 
 function ReaderToolbar({ book, onBack, progress, onOpenTweaks, mode, onModeChange }) {
   const handleClose = () => window.electronAPI?.windowClose();
@@ -427,8 +433,9 @@ function DemoContent({ book, onProgressChange, onActiveChapterChange, jumpRef })
   );
 }
 
-function AiChatSidebar({ book, collapsed, onToggle }) {
+function AiChatSidebar({ book, collapsed, onToggle, selectionContext, onClearSelectionContext }) {
   const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState('idle');
   const [messages, setMessages] = useState(() => ([
     {
       role: 'assistant',
@@ -436,15 +443,51 @@ function AiChatSidebar({ book, collapsed, onToggle }) {
     },
   ]));
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || status === 'sending') return;
     setDraft('');
+    const userMessage = { role: 'user', text };
     setMessages(prev => [
       ...prev,
-      { role: 'user', text },
-      { role: 'assistant', text: 'AI 回答通道还没有连接。界面已经准备好，之后可以接入真实模型。' },
+      userMessage,
     ]);
+
+    setStatus('sending');
+    try {
+      const result = await window.electronAPI?.chatWithAI?.({
+        messages: [...messages, userMessage].map((message) => ({
+          role: message.role,
+          content: message.text,
+        })),
+        books: [{
+          id: book.id,
+          title: book.title,
+          author: book.author,
+          format: book.format,
+          filePath: book.filePath,
+          isRealFile: book.isRealFile,
+        }],
+        selectedTextContext: selectionContext ? {
+          ...selectionContext,
+          text: trimSelectedContextText(selectionContext.text),
+        } : null,
+      });
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: result?.ok ? result.message : (result?.error || 'AI chat is not available right now.'),
+        },
+      ]);
+    } catch (err) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', text: err.message || 'AI chat is not available right now.' },
+      ]);
+    } finally {
+      setStatus('idle');
+    }
   };
 
   if (collapsed) {
@@ -586,6 +629,69 @@ function AiChatSidebar({ book, collapsed, onToggle }) {
         </div>
       </div>
 
+      {selectionContext?.text && (
+        <div style={{
+          padding: '10px 14px',
+          borderBottom: '0.5px solid var(--hairline)',
+          background: 'var(--app-bg)',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: 'var(--accent)',
+              flex: 1,
+            }}>
+              Selected context
+            </div>
+            <button
+              onClick={onClearSelectionContext}
+              title="Clear selected context"
+              style={{
+                width: 22,
+                height: 22,
+                border: '0.5px solid var(--hairline)',
+                borderRadius: 5,
+                background: 'var(--input-bg)',
+                color: 'var(--fg-faint)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+                <path d="M2 2l5 5M7 2L2 7" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div style={{
+            fontSize: 11,
+            lineHeight: 1.45,
+            color: 'var(--fg-muted)',
+            display: '-webkit-box',
+            WebkitLineClamp: 4,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}>
+            {selectionContext.text}
+          </div>
+          <div style={{
+            marginTop: 6,
+            fontSize: 10,
+            color: 'var(--fg-faint)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {selectionContext.label || 'Selected text'}
+          </div>
+        </div>
+      )}
+
       <div style={{
         flex: 1,
         overflowY: 'auto',
@@ -611,7 +717,7 @@ function AiChatSidebar({ book, collapsed, onToggle }) {
                 lineHeight: 1.45,
               }}
             >
-              {message.text}
+              {isUser ? message.text : <MarkdownContent content={message.text} compact />}
             </div>
           );
         })}
@@ -634,7 +740,7 @@ function AiChatSidebar({ book, collapsed, onToggle }) {
               sendMessage();
             }
           }}
-          placeholder="Ask about this book"
+          placeholder={selectionContext?.text ? 'Ask about the selected text' : 'Ask about this book'}
           rows={2}
           style={{
             flex: 1,
@@ -654,16 +760,16 @@ function AiChatSidebar({ book, collapsed, onToggle }) {
         />
         <button
           onClick={sendMessage}
-          disabled={!draft.trim()}
+          disabled={!draft.trim() || status === 'sending'}
           title="Send"
           style={{
             width: 30,
             height: 30,
             border: 'none',
             borderRadius: 7,
-            background: draft.trim() ? 'var(--accent)' : 'var(--selected)',
-            color: draft.trim() ? '#fff' : 'var(--fg-faint)',
-            cursor: draft.trim() ? 'pointer' : 'default',
+            background: draft.trim() && status !== 'sending' ? 'var(--accent)' : 'var(--selected)',
+            color: draft.trim() && status !== 'sending' ? '#fff' : 'var(--fg-faint)',
+            cursor: draft.trim() && status !== 'sending' ? 'pointer' : 'default',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -699,8 +805,13 @@ export default function ReaderView({ book, onBack, onOpenTweaks, notesFolder, on
   const [boardJumpTarget, setBoardJumpTarget] = useState(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [aiChatCollapsed, setAiChatCollapsed] = useState(false);
+  const [selectedTextContext, setSelectedTextContext] = useState(null);
   const jumpCallbackRef = useRef(null);
   const jumpToCfiRef = useRef(null);
+
+  useEffect(() => {
+    setSelectedTextContext(null);
+  }, [book.id]);
 
   const handleSelectNotesFolder = useCallback(async () => {
     if (!window.electronAPI) return;
@@ -745,6 +856,20 @@ export default function ReaderView({ book, onBack, onOpenTweaks, notesFolder, on
     });
     setReaderMode('board');
   }, [book.id]);
+
+  const handleTextSelection = useCallback((selection) => {
+    const text = String(selection?.text || '').trim();
+    if (text.length < 2) return;
+    setSelectedTextContext({
+      text,
+      bookTitle: book.title,
+      bookAuthor: book.author,
+      format: selection?.format || book.format,
+      label: selection?.chapter || (selection?.pageNum ? `Page ${selection.pageNum}` : 'Selected text'),
+      cfi: selection?.cfi || null,
+      pageNum: selection?.pageNum || null,
+    });
+  }, [book.author, book.format, book.title]);
 
   const handleOpenBoardSource = useCallback((card) => {
     if (!card?.cfi && !card?.href && !card?.pageNum && !card?.source) return;
@@ -794,6 +919,7 @@ export default function ReaderView({ book, onBack, onOpenTweaks, notesFolder, on
                 onActiveChapterChange={setActiveChapter}
                 jumpCallbackRef={jumpCallbackRef}
                 initialPage={boardJumpTarget?.pageNum || initialSearchTarget?.pageNum}
+                onTextSelection={handleTextSelection}
               />
             ) : (
               <EpubReader
@@ -809,6 +935,7 @@ export default function ReaderView({ book, onBack, onOpenTweaks, notesFolder, on
                 onAnnotationCreate={handleAnnotationCreate}
                 onAnnotationDelete={handleAnnotationDelete}
                 onAddSelectionToBoard={handleAddSelectionToBoard}
+                onTextSelection={handleTextSelection}
               />
             )
         ) : (
@@ -823,6 +950,8 @@ export default function ReaderView({ book, onBack, onOpenTweaks, notesFolder, on
           book={book}
           collapsed={aiChatCollapsed}
           onToggle={() => setAiChatCollapsed(v => !v)}
+          selectionContext={selectedTextContext}
+          onClearSelectionContext={() => setSelectedTextContext(null)}
         />
       </div>
     </div>

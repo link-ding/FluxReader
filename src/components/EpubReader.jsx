@@ -48,6 +48,7 @@ export default function EpubReader({
   onAnnotationCreate,
   onAnnotationDelete,
   onAddSelectionToBoard,
+  onTextSelection,
   jumpToCfiRef,
   initialLocationCfi,
   initialLocationHref,
@@ -292,6 +293,12 @@ export default function EpubReader({
                 y: iframeRect.top + rect.top,
               },
             });
+            onTextSelection?.({
+              text,
+              cfi: cfiRange,
+              chapter: currentChapterRef.current,
+              format: 'EPUB',
+            });
           } catch (_) {}
         });
 
@@ -339,7 +346,7 @@ export default function EpubReader({
       try { renditionRef.current?.destroy(); } catch (_) {}
       try { bookRef.current?.destroy(); } catch (_) {}
     };
-  }, [book.id, book.filePath, initialLocationCfi, initialLocationHref, updateActiveEdgeFromClientX]);
+  }, [book.id, book.filePath, initialLocationCfi, initialLocationHref, onTextSelection, updateActiveEdgeFromClientX]);
 
   useEffect(() => {
     const el = containerRef.current;

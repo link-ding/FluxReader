@@ -8,20 +8,14 @@ function SidebarIcon({ kind }) {
   if (kind === 'all') return (
     <svg viewBox="0 0 14 14" fill="none" style={s}><rect x="2" y="2" width="4" height="10" stroke="currentColor" strokeWidth="1" /><rect x="7" y="2" width="2.5" height="10" stroke="currentColor" strokeWidth="1" /><rect x="10.5" y="3" width="2" height="9" stroke="currentColor" strokeWidth="1" /></svg>
   );
-  if (kind === 'reading') return (
-    <svg viewBox="0 0 14 14" fill="none" style={s}><path d="M2 3h4.5c.5 0 1 .2 1 .8V12c0-.5-.5-.8-1-.8H2V3z" stroke="currentColor" strokeWidth="1" /><path d="M12 3H7.5c-.5 0-1 .2-1 .8V12c0-.5.5-.8 1-.8H12V3z" stroke="currentColor" strokeWidth="1" /></svg>
-  );
-  if (kind === 'finished') return (
-    <svg viewBox="0 0 14 14" fill="none" style={s}><path d="M3 4l2.5 2.5L11 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M12 7v4.5a.5.5 0 01-.5.5h-9a.5.5 0 01-.5-.5v-8a.5.5 0 01.5-.5H8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
-  );
   if (kind === 'highlight') return (
     <svg viewBox="0 0 14 14" fill="none" style={s}><path d="M3 9.5l5.8-5.8a1.4 1.4 0 012 2L5 11.5H3v-2z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" /><path d="M7.5 5.5l2 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
   );
   if (kind === 'search') return (
     <svg viewBox="0 0 14 14" fill="none" style={s}><circle cx="6" cy="6" r="3.8" stroke="currentColor" strokeWidth="1" /><path d="M8.8 8.8l3 3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" /></svg>
   );
-  if (kind === 'epub' || kind === 'pdf') return (
-    <svg viewBox="0 0 14 14" fill="none" style={s}><path d="M3 2h5l3 3v7a1 1 0 01-1 1H3a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" strokeWidth="1" /><path d="M8 2v3h3" stroke="currentColor" strokeWidth="1" /></svg>
+  if (kind === 'chat') return (
+    <svg viewBox="0 0 14 14" fill="none" style={s}><path d="M2 3.5a2 2 0 012-2h6a2 2 0 012 2v4a2 2 0 01-2 2H6.5L3 12V9.5a2 2 0 01-1-1.7V3.5z" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" /><path d="M4.5 5h5M4.5 7h3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
   );
   return null;
 }
@@ -91,8 +85,6 @@ export default function Sidebar({
   searchResultsCount = 0,
 }) {
   const totalBooks = books.length;
-  const reading = books.filter(b => b.progress > 0 && b.progress < 1).length;
-  const finished = books.filter(b => b.progress >= 1).length;
 
   return (
     <div style={{
@@ -105,11 +97,19 @@ export default function Sidebar({
       overflowY: 'auto',
     }}>
       <SidebarSection title="Library">
-        <SidebarItem label="All Books" count={totalBooks} selected={view === 'all'} onClick={() => onView('all')} icon="all" />
-        <SidebarItem label="Currently Reading" count={reading} selected={view === 'reading'} onClick={() => onView('reading')} icon="reading" />
-        <SidebarItem label="Finished" count={finished} selected={view === 'finished'} onClick={() => onView('finished')} icon="finished" />
+        <SidebarItem
+          label="All Books"
+          count={totalBooks}
+          selected={view === 'all' && !selectedFolder}
+          onClick={() => {
+            onSelectFolder('');
+            onView('all');
+          }}
+          icon="all"
+        />
         <SidebarItem label="Highlights" count={highlightsCount} selected={view === 'highlights'} onClick={() => onView('highlights')} icon="highlight" />
-        <SidebarItem label="Full Text Search" count={searchResultsCount} selected={view === 'search'} onClick={() => onView('search')} icon="search" />
+        <SidebarItem label="Search" count={searchResultsCount} selected={view === 'search'} onClick={() => onView('search')} icon="search" />
+        <SidebarItem label="AI Chat" selected={view === 'chat'} onClick={() => onView('chat')} icon="chat" />
       </SidebarSection>
 
       <SidebarSection title="Folders">
@@ -118,8 +118,11 @@ export default function Sidebar({
             key={f.path}
             label={f.name}
             count={f.count}
-            selected={selectedFolder === f.path}
-            onClick={() => onSelectFolder(f.path)}
+            selected={view === 'all' && selectedFolder === f.path}
+            onClick={() => {
+              onSelectFolder(f.path);
+              onView('all');
+            }}
             icon="folder"
           />
         ))}
@@ -136,11 +139,6 @@ export default function Sidebar({
         >
           <span style={{ fontSize: 14, lineHeight: 1 }}>+</span> Add folder…
         </div>
-      </SidebarSection>
-
-      <SidebarSection title="Formats">
-        <SidebarItem label="EPUB" count={books.filter(b => b.format === 'EPUB').length} icon="epub" />
-        <SidebarItem label="PDF" count={books.filter(b => b.format === 'PDF').length} icon="pdf" />
       </SidebarSection>
 
       <div style={{ flex: 1 }} />

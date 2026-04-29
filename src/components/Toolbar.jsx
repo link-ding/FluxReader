@@ -11,6 +11,8 @@ export default function Toolbar({
   onRefresh,
   refreshing = false,
   searchPlaceholder = 'Search title or author',
+  showSearch = true,
+  showSort = true,
   sortOptions = [
     { value: 'recent', label: 'Recently Added' },
     { value: 'title', label: 'Title' },
@@ -54,7 +56,7 @@ export default function Toolbar({
             {subtitle}
           </div>
         </div>
-        <div style={{ position: 'relative' }}>
+        {showSearch ? <div style={{ position: 'relative' }}>
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: 'var(--fg-faint)' }}>
             <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1" />
             <path d="M7.5 7.5l2 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
@@ -73,8 +75,8 @@ export default function Toolbar({
               color: 'var(--fg)',
             }}
           />
-        </div>
-        <select
+        </div> : null}
+        {showSort ? <select
           value={sort}
           onChange={e => onSort(e.target.value)}
           style={{
@@ -94,7 +96,7 @@ export default function Toolbar({
           {sortOptions.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
-        </select>
+        </select> : null}
         {onRefresh ? (
           <button
             onClick={handleRefreshClick}

@@ -6,7 +6,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).href;
 
-export default function PdfReader({ book, onTocReady, onProgressChange, onActiveChapterChange, jumpCallbackRef, initialPage }) {
+export default function PdfReader({ book, onTocReady, onProgressChange, onActiveChapterChange, jumpCallbackRef, initialPage, onTextSelection }) {
   const containerRef = useRef(null);
   const canvasRefs = useRef([]);
   const [numPages, setNumPages] = useState(0);
@@ -101,9 +101,22 @@ export default function PdfReader({ book, onTocReady, onProgressChange, onActive
     return () => el.removeEventListener('scroll', onScroll);
   }, [numPages]);
 
+  const handleSelectionCapture = () => {
+    const text = window.getSelection?.()?.toString()?.trim();
+    if (!text || text.length < 2) return;
+    onTextSelection?.({
+      text,
+      chapter: `Page ${Math.max(1, activePageFromScroll(containerRef.current, canvasRefs.current))}`,
+      pageNum: Math.max(1, activePageFromScroll(containerRef.current, canvasRefs.current)),
+      format: 'PDF',
+    });
+  };
+
   return (
     <div
       ref={containerRef}
+      onMouseUp={handleSelectionCapture}
+      onKeyUp={handleSelectionCapture}
       style={{ flex: 1, minWidth: 0, overflow: 'auto', background: 'var(--reader-bg)', position: 'relative' }}
     >
       {loading && (
@@ -131,4 +144,14 @@ export default function PdfReader({ book, onTocReady, onProgressChange, onActive
       </div>
     </div>
   );
+}
+
+function activePageFromScroll(container, canvases) {
+  if (!container) return 1;
+  const midY = container.scrollTop + container.clientHeight / 2;
+  let active = 0;
+  canvases.forEach((canvas, index) => {
+    if (canvas && canvas.offsetTop <= midY) active = index;
+  });
+  return active + 1;
 }

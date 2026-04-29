@@ -7,6 +7,7 @@ import Toolbar from './components/Toolbar.jsx';
 import LibraryGrid from './components/LibraryGrid.jsx';
 import HighlightsPanel from './components/HighlightsPanel.jsx';
 import SearchResultsPanel from './components/SearchResultsPanel.jsx';
+import AiChatPanel from './components/AiChatPanel.jsx';
 import ReaderView from './components/ReaderView.jsx';
 import TweaksPanel from './components/TweaksPanel.jsx';
 import { storeGet, storeSet } from './data/store.js';
@@ -28,6 +29,7 @@ const TWEAK_DEFAULTS = {
   aiProvider: 'openai',
   aiApiKey: '',
   aiModel: 'gpt-5.1-mini',
+  aiEmbeddingModel: 'text-embedding-3-small',
   aiBaseUrl: 'https://api.openai.com/v1',
 };
 
@@ -55,6 +57,12 @@ function makeRealBook(file, index) {
     filePath: file.filePath,
     isRealFile: true,
   };
+}
+
+function isBookInFolder(book, folderPath) {
+  if (!folderPath) return true;
+  const filePath = String(book?.filePath || '');
+  return filePath === folderPath || filePath.startsWith(`${folderPath}/`);
 }
 
 const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
@@ -114,11 +122,21 @@ export default function App() {
   const [refreshingFolders, setRefreshingFolders] = useState(false);
   const [fullTextResults, setFullTextResults] = useState([]);
   const [fullTextStatus, setFullTextStatus] = useState('idle');
+  const [semanticSearchMap, setSemanticSearchMap] = useState({ query: '', status: 'idle', map: null, error: '' });
+  const [semanticThemeExplanation, setSemanticThemeExplanation] = useState({ query: '', clusterId: '', status: 'idle', content: '', error: '' });
+  const [aiIndexStatus, setAiIndexStatus] = useState({ status: 'idle', message: '', error: '', index: null });
+  const [aiMessages, setAiMessages] = useState(() => storeGet('ai:messages', []));
+  const [aiStatus, setAiStatus] = useState('idle');
   const searchRequestRef = useRef(0);
 
   const allBooks = isElectron
     ? realBooks
     : (realBooks.length > 0 ? realBooks : DEMO_BOOKS);
+  const scopedBooks = useMemo(() => (
+    isElectron && selectedFolder
+      ? allBooks.filter((book) => isBookInFolder(book, selectedFolder))
+      : allBooks
+  ), [allBooks, selectedFolder]);
 
   useEffect(() => { applyTheme(tweaks.theme); }, [tweaks.theme]);
   useEffect(() => { applyFont(tweaks.font); }, [tweaks.font]);
@@ -126,9 +144,39 @@ export default function App() {
   useEffect(() => { document.documentElement.style.setProperty('--reader-width', tweaks.width + 'px'); }, [tweaks.width]);
   useEffect(() => { void storeSet('app:tweaks', tweaks); }, [tweaks]);
   useEffect(() => { void storeSet('app:route', { view: route.view, bookId: route.bookId }); }, [route]);
+  useEffect(() => { void storeSet('ai:messages', aiMessages); }, [aiMessages]);
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onAIIndexProgress?.((progress) => {
+      setAiIndexStatus((current) => {
+        if (current.status !== 'building') return current;
+        const totalBooks = progress.totalBooks || 0;
+        const currentBook = progress.currentBook || 0;
+        const bookText = progress.bookTitle ? ` · ${progress.bookTitle}` : '';
+        const batchText = progress.batchCount
+          ? ` · batch ${progress.batchIndex || 0}/${progress.batchCount}`
+          : '';
+        const phaseText = progress.phase === 'embedding' ? 'Embedding chunks' : 'Reading books';
+        return {
+          ...current,
+          progress,
+          message: `${phaseText}: ${currentBook}/${totalBooks} books${bookText} · ${progress.chunksCount || 0} chunks${batchText}`,
+        };
+      });
+    });
+    return () => { if (unsubscribe) unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    if (filterView === 'reading' || filterView === 'finished') setFilterView('all');
+  }, [filterView]);
+  useEffect(() => {
+    setSemanticSearchMap({ query: search.trim(), status: 'idle', map: null, error: '' });
+    setSemanticThemeExplanation({ query: search.trim(), clusterId: '', status: 'idle', content: '', error: '' });
+  }, [selectedFolder]);
   useEffect(() => {
     const validSorts = filterView === 'search'
       ? ['relevance', 'title']
+      : filterView === 'chat'
+      ? ['recent']
       : filterView === 'highlights'
       ? ['recent', 'oldest', 'title']
       : ['recent', 'title', 'author', 'progress'];
@@ -137,6 +185,12 @@ export default function App() {
   useEffect(() => {
     if (filterView !== 'search') return;
     const q = search.trim();
+    setSemanticSearchMap((current) => (
+      current.query === q ? current : { query: q, status: 'idle', map: null, error: '' }
+    ));
+    setSemanticThemeExplanation((current) => (
+      current.query === q ? current : { query: q, clusterId: '', status: 'idle', content: '', error: '' }
+    ));
     if (q.length < 2) {
       setFullTextStatus('idle');
       setFullTextResults([]);
@@ -149,7 +203,7 @@ export default function App() {
 
     const timer = setTimeout(async () => {
       try {
-        const searchableBooks = allBooks
+        const searchableBooks = scopedBooks
           .filter((book) => book.isRealFile && book.filePath)
           .map(({ id, title, author, format, filePath }) => ({ id, title, author, format, filePath }));
         const results = await window.electronAPI?.searchBooks?.(searchableBooks, q);
@@ -164,7 +218,7 @@ export default function App() {
     }, 250);
 
     return () => clearTimeout(timer);
-  }, [filterView, search, allBooks]);
+  }, [filterView, search, scopedBooks]);
   useEffect(() => {
     if (!isElectron) return;
     if (folders.length > 0) void storeSet('library:folders', folders);
@@ -172,10 +226,9 @@ export default function App() {
   }, []); // Migrate legacy values without overwriting saved data with empty defaults.
   useEffect(() => {
     if (!isElectron || folders.length === 0) return;
-    if (!selectedFolder || !folders.some((folder) => folder.path === selectedFolder)) {
-      const fallbackFolder = folders[0].path;
-      setSelectedFolder(fallbackFolder);
-      void storeSet('library:selectedFolder', fallbackFolder);
+    if (selectedFolder && !folders.some((folder) => folder.path === selectedFolder)) {
+      setSelectedFolder('');
+      void storeSet('library:selectedFolder', '');
     }
   }, [folders, selectedFolder]);
   const setTweaks = (partial) => _setTweaks(t => ({ ...t, ...partial }));
@@ -310,7 +363,7 @@ export default function App() {
   };
 
   const filteredBooks = useMemo(() => {
-    let list = allBooks.slice();
+    let list = scopedBooks.slice();
     if (filterView === 'reading') list = list.filter(b => b.progress > 0 && b.progress < 1);
     if (filterView === 'finished') list = list.filter(b => b.progress >= 1);
     if (search.trim()) {
@@ -321,13 +374,13 @@ export default function App() {
     else if (sort === 'author') list.sort((a, b) => a.author.split(' ').slice(-1)[0].localeCompare(b.author.split(' ').slice(-1)[0]));
     else if (sort === 'progress') list.sort((a, b) => b.progress - a.progress);
     return list;
-  }, [allBooks, filterView, search, sort]);
+  }, [scopedBooks, filterView, search, sort]);
 
   const allHighlights = useMemo(() => (
-    allBooks.flatMap((book) => (
+    scopedBooks.flatMap((book) => (
       getAnnotations(book.id).map((annotation) => ({ ...annotation, book }))
     ))
-  ), [allBooks, route.view, route.bookId]);
+  ), [scopedBooks, route.view, route.bookId]);
 
   const filteredHighlights = useMemo(() => {
     let list = allHighlights.slice();
@@ -366,27 +419,138 @@ export default function App() {
       searchTarget: { href: item.href || null, pageNum: item.pageNum || null },
     });
   };
+  const buildSemanticSearchMap = async () => {
+    const query = search.trim();
+    if (query.length < 2 || semanticSearchMap.status === 'building') return;
+
+    const results = sortedFullTextResults
+      .filter((item) => !item.error && item.snippet);
+
+    setSemanticSearchMap({ query, status: 'building', map: null, error: '' });
+    try {
+      const result = await window.electronAPI?.buildSemanticSearchMap?.({ query, results });
+      setSemanticSearchMap({
+        query,
+        status: 'idle',
+        map: result?.ok ? result.map : null,
+        error: result?.ok ? '' : (result?.error || 'Semantic map is not available right now.'),
+      });
+    } catch (err) {
+      setSemanticSearchMap({
+        query,
+        status: 'idle',
+        map: null,
+        error: err.message || 'Semantic map is not available right now.',
+      });
+    }
+  };
+  const explainSemanticTheme = async (cluster) => {
+    const query = search.trim();
+    if (!cluster?.id || query.length < 2 || semanticThemeExplanation.status === 'explaining') return;
+
+    setSemanticThemeExplanation({ query, clusterId: cluster.id, status: 'explaining', content: '', error: '' });
+    try {
+      const result = await window.electronAPI?.explainSemanticTheme?.({ query, cluster });
+      setSemanticThemeExplanation({
+        query,
+        clusterId: cluster.id,
+        status: 'idle',
+        content: result?.ok ? result.explanation : '',
+        error: result?.ok ? '' : (result?.error || 'Theme explanation is not available right now.'),
+      });
+    } catch (err) {
+      setSemanticThemeExplanation({
+        query,
+        clusterId: cluster.id,
+        status: 'idle',
+        content: '',
+        error: err.message || 'Theme explanation is not available right now.',
+      });
+    }
+  };
+  const buildAIIndex = async () => {
+    if (aiIndexStatus.status === 'building') return;
+    const searchableBooks = allBooks
+      .filter((book) => book.isRealFile && book.filePath)
+      .map(({ id, title, author, format, filePath, isRealFile }) => ({ id, title, author, format, filePath, isRealFile }));
+
+    setAiIndexStatus({ status: 'building', message: `Indexing ${searchableBooks.length} books…`, error: '', index: null, progress: { currentBook: 0, totalBooks: searchableBooks.length } });
+    try {
+      const result = await window.electronAPI?.buildAIIndex?.({ books: searchableBooks });
+      if (result?.ok) {
+        setAiIndexStatus({
+          status: 'idle',
+          message: `Indexed ${result.index.chunksCount} chunks from ${result.index.booksCount} books. ${result.index.cachedCount} cached / ${result.index.requestedCount} new.`,
+          error: '',
+          index: result.index,
+        });
+      } else {
+        setAiIndexStatus({ status: 'idle', message: '', error: result?.error || 'AI index could not be built.', index: null });
+      }
+    } catch (err) {
+      setAiIndexStatus({ status: 'idle', message: '', error: err.message || 'AI index could not be built.', index: null });
+    }
+  };
+  const sendAiMessage = async (content) => {
+    const userMessage = { id: `user-${Date.now()}`, role: 'user', content };
+    const nextMessages = [...aiMessages, userMessage];
+    setAiMessages(nextMessages);
+    setAiStatus('sending');
+
+    try {
+      const searchableBooks = scopedBooks
+        .filter((book) => book.isRealFile && book.filePath)
+        .map(({ id, title, author, format, filePath, isRealFile }) => ({ id, title, author, format, filePath, isRealFile }));
+      const result = await window.electronAPI?.chatWithAI?.({
+        messages: nextMessages.map(({ role, content }) => ({ role, content })),
+        books: searchableBooks,
+      });
+      setAiMessages((current) => [...current, {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: result?.ok ? result.message : (result?.error || 'AI chat is not available right now.'),
+      }]);
+    } catch (err) {
+      setAiMessages((current) => [...current, {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: err.message || 'AI chat is not available right now.',
+      }]);
+    } finally {
+      setAiStatus('idle');
+    }
+  };
+  const clearAiMessages = () => setAiMessages([]);
   const backToLibrary = () => setRoute({ view: 'library', bookId: null, highlightCfi: null, searchTarget: null });
   const activeBook = route.bookId ? allBooks.find(b => b.id === route.bookId) : null;
 
   const folderInfo = folders.find(f => f.path === selectedFolder);
+  const activeBookCount = scopedBooks.length;
+  const activeFolderLabel = folderInfo ? folderInfo.path : 'All folders';
   const highlightedBooksCount = new Set(filteredHighlights.map((item) => item.book.id)).size;
   const sub = filterView === 'search'
     ? (search.trim().length >= 2
-        ? `${sortedFullTextResults.length} result${sortedFullTextResults.length !== 1 ? 's' : ''} · ${allBooks.length} book${allBooks.length !== 1 ? 's' : ''}`
-        : `${allBooks.length} book${allBooks.length !== 1 ? 's' : ''} available`)
+        ? `${sortedFullTextResults.length} result${sortedFullTextResults.length !== 1 ? 's' : ''} · ${activeBookCount} book${activeBookCount !== 1 ? 's' : ''}`
+        : `${activeBookCount} book${activeBookCount !== 1 ? 's' : ''} available`)
+    : filterView === 'chat'
+    ? `${activeBookCount} book${activeBookCount !== 1 ? 's' : ''} available · ${aiMessages.length} message${aiMessages.length !== 1 ? 's' : ''}`
     : filterView === 'highlights'
     ? `${filteredHighlights.length} highlight${filteredHighlights.length !== 1 ? 's' : ''} · ${highlightedBooksCount} book${highlightedBooksCount !== 1 ? 's' : ''}`
-    : `${filteredBooks.length} book${filteredBooks.length !== 1 ? 's' : ''} · ${folderInfo ? folderInfo.path : (selectedFolder || 'No folder selected')}`;
+    : `${filteredBooks.length} book${filteredBooks.length !== 1 ? 's' : ''} · ${activeFolderLabel}`;
   const title = filterView === 'reading' ? 'Currently Reading' :
                 filterView === 'finished' ? 'Finished' :
                 filterView === 'highlights' ? 'Highlights' :
-                filterView === 'search' ? 'Full Text Search' :
+                filterView === 'search' ? 'Search' :
+                filterView === 'chat' ? 'AI Chat' :
                 folderInfo ? folderInfo.name : (isElectron && folders.length === 0 ? 'Add a folder to get started' : 'All Books');
   const sortOptions = filterView === 'search'
     ? [
         { value: 'relevance', label: 'Relevance' },
         { value: 'title', label: 'Book Title' },
+      ]
+    : filterView === 'chat'
+    ? [
+        { value: 'recent', label: 'Recent' },
       ]
     : filterView === 'highlights'
     ? [
@@ -401,7 +565,7 @@ export default function App() {
         { value: 'progress', label: 'Progress' },
       ];
   const searchPlaceholder = filterView === 'search'
-    ? 'Search inside all books'
+    ? (folderInfo ? `Search inside ${folderInfo.name}` : 'Search inside all books')
     : filterView === 'highlights' ? 'Search highlight, note, or book' : 'Search title or author';
 
   return (
@@ -413,7 +577,7 @@ export default function App() {
         {route.view === 'library' ? (
           <MacChrome title="Local Reader">
             <Sidebar
-              currentFolder={folderInfo ? folderInfo.path : (selectedFolder || '—')}
+              currentFolder={folderInfo ? folderInfo.path : 'All folders'}
               folders={folders.length > 0 ? folders : (isElectron ? [] : DEMO_FOLDERS)}
               selectedFolder={selectedFolder}
               onSelectFolder={(p) => { selectFolder(p); setFilterView('all'); }}
@@ -432,6 +596,8 @@ export default function App() {
                 search={search} onSearch={setSearch}
                 searchPlaceholder={searchPlaceholder}
                 sortOptions={sortOptions}
+                showSearch={filterView !== 'chat'}
+                showSort={filterView !== 'chat'}
                 onRefresh={isElectron && folders.length > 0 ? (() => void refreshLibrary()) : null}
                 refreshing={refreshingFolders}
                 onOpenTweaks={() => setTweaksOpen(o => !o)}
@@ -451,9 +617,22 @@ export default function App() {
                 ) : filterView === 'search' ? (
                   <SearchResultsPanel
                     query={search}
-                    status={fullTextStatus}
-                    results={sortedFullTextResults}
-                    onOpenResult={openSearchResult}
+	                    status={fullTextStatus}
+	                    results={sortedFullTextResults}
+	                    onOpenResult={openSearchResult}
+                      semanticMap={semanticSearchMap}
+                      onBuildSemanticMap={buildSemanticSearchMap}
+                      themeExplanation={semanticThemeExplanation}
+                      onExplainSemanticTheme={explainSemanticTheme}
+	                    hasApiKey={!!tweaks.aiApiKey}
+	                  />
+                ) : filterView === 'chat' ? (
+                  <AiChatPanel
+                    messages={aiMessages}
+                    status={aiStatus}
+                    onSend={sendAiMessage}
+                    onClear={clearAiMessages}
+                    hasApiKey={!!tweaks.aiApiKey}
                   />
                 ) : filterView === 'highlights' ? (
                   <HighlightsPanel highlights={filteredHighlights} onOpenHighlight={openHighlight} />
@@ -486,8 +665,10 @@ export default function App() {
           setFilterView('all');
         }}
         onRemoveBookFolder={removeFolder}
-        onChooseNotesFolder={chooseNotesFolder}
-      />
+            onChooseNotesFolder={chooseNotesFolder}
+            aiIndexStatus={aiIndexStatus}
+            onBuildAIIndex={buildAIIndex}
+          />
     </div>
   );
 }
